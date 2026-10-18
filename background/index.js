@@ -1,6 +1,31 @@
 
 // chrome.storage.sync.clear()
 
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: 'crop-to-clipboard',
+      title: 'Crop screenshot to clipboard',
+      contexts: ['page', 'selection', 'link', 'image', 'video', 'audio', 'editable'],
+      documentUrlPatterns: ['http://*/*', 'https://*/*', 'file:///*']
+    })
+  })
+})
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== 'crop-to-clipboard' || !tab) return
+  try {
+    await chrome.scripting.executeScript({
+      files: ['content/clipboard.js'], target: {tabId: tab.id}
+    })
+  }
+  catch (error) {
+    console.error('Screenshot Capture:', error)
+    chrome.action.setBadgeText({tabId: tab.id, text: '!'})
+    chrome.action.setTitle({tabId: tab.id, title: 'Cannot capture this page. Open a regular webpage and try again.'})
+  }
+})
+
 var defaults = {
   method: 'crop',
   format: 'png',
@@ -37,26 +62,31 @@ chrome.storage.sync.get((store) => {
   })
 })
 
-function inject (tab) {
-  chrome.tabs.sendMessage(tab.id, {message: 'init'}, (res) => {
-    if (res) {
-      clearTimeout(timeout)
+async function inject (tab) {
+  if (!tab?.id) return
+  if (!/^(https?|file):/.test(tab.url || '') ||
+      /^https:\/\/(chromewebstore\.google\.com|chrome\.google\.com\/webstore)(\/|$)/.test(tab.url || '')) {
+    await chrome.action.setBadgeText({tabId: tab.id, text: '!'})
+    await chrome.action.setTitle({tabId: tab.id, title: 'Cannot capture this page. Open a regular webpage and try again.'})
+    return
+  }
+  try {
+    try {
+      const response = await chrome.tabs.sendMessage(tab.id, {message: 'init'})
+      if (response) return
     }
-  })
-
-  var timeout = setTimeout(() => {
-    chrome.scripting.insertCSS({files: ['vendor/jquery.Jcrop.min.css'], target: {tabId: tab.id}})
-    chrome.scripting.insertCSS({files: ['content/index.css'], target: {tabId: tab.id}})
-
-    chrome.scripting.executeScript({files: ['vendor/jquery.min.js'], target: {tabId: tab.id}})
-    chrome.scripting.executeScript({files: ['vendor/jquery.Jcrop.min.js'], target: {tabId: tab.id}})
-    chrome.scripting.executeScript({files: ['content/crop.js'], target: {tabId: tab.id}})
-    chrome.scripting.executeScript({files: ['content/index.js'], target: {tabId: tab.id}})
-
-    setTimeout(() => {
-      chrome.tabs.sendMessage(tab.id, {message: 'init'})
-    }, 100)
-  }, 100)
+    catch (_) { /* No content script yet on this page. */ }
+    const target = {tabId: tab.id}
+    await chrome.scripting.insertCSS({files: ['vendor/jquery.Jcrop.min.css', 'content/index.css'], target})
+    await chrome.scripting.executeScript({
+      files: ['vendor/jquery.min.js', 'vendor/jquery.Jcrop.min.js', 'content/crop.js', 'content/index.js'], target
+    })
+    await chrome.tabs.sendMessage(tab.id, {message: 'init'})
+  }
+  catch (error) {
+    await chrome.action.setBadgeText({tabId: tab.id, text: '!'})
+    await chrome.action.setTitle({tabId: tab.id, title: `Screenshot Capture: ${error.message}`})
+  }
 }
 
 chrome.action.onClicked.addListener((tab) => {
@@ -72,9 +102,24 @@ chrome.commands.onCommand.addListener((command) => {
 })
 
 chrome.runtime.onMessage.addListener((req, sender, res) => {
-  if (req.message === 'capture') {
+  if (req.message === 'clipboard-capture') {
+    if (!sender.tab) return
+    chrome.tabs.query({active: true, windowId: sender.tab.windowId}, (tabs) => {
+      if (!tabs[0] || tabs[0].id !== sender.tab.id) {
+        res({error: 'Keep the selected tab active while capturing.'})
+        return
+      }
+      chrome.tabs.captureVisibleTab(sender.tab.windowId, {format: 'png'}, (image) => {
+        var error = chrome.runtime.lastError
+        res(error ? {error: error.message} : {image})
+      })
+    })
+  }
+  else if (req.message === 'capture') {
     chrome.tabs.query({active: true, currentWindow: true}, (tab) => {
-      chrome.tabs.captureVisibleTab(tab.windowId, {format: req.format, quality: req.quality}, (image) => {
+      chrome.tabs.captureVisibleTab(sender.tab?.windowId, {format: req.format, quality: req.quality}, (image) => {
+        const error = chrome.runtime.lastError
+        if (error) { res({error: error.message}); return }
         // image is base64
         res({message: 'image', image})
       })

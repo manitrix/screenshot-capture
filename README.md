@@ -35,6 +35,23 @@
 
 # Capture Method
 
+#### **Right-click: Crop screenshot to clipboard**
+
+1. Right-click the webpage and choose `Crop screenshot to clipboard`.
+2. Hold the left mouse button and drag over the area you want.
+3. Release to copy the cropped PNG image, then paste it with `Ctrl+V`.
+
+Press `Esc` to cancel. This action always copies an image without downloading a
+file or changing your saved options. Clipboard capture requires HTTPS or localhost.
+Chrome internal pages and the Chrome Web Store cannot be captured.
+
+For a local unpacked installation, copy `manifest.chrome.json` to `manifest.json`
+in this folder, then use `chrome://extensions` → Developer mode → Load unpacked.
+Reload the extension after updating it to register the new right-click option.
+The context-menu action works without building the vendor libraries. The toolbar
+action needs the crop libraries in `vendor/`; run `sh build/jquery/build.sh` after
+creating that folder, or run the full build below for the options page as well.
+
 #### **`Crop and Save`**
 
 1. Activate the extension by using the [keyboard shortcut](#keyboard-shortcut) or by clicking on the extension button

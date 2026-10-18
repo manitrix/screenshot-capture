@@ -55,6 +55,8 @@
   "permissions": [
     "storage",
     "scripting",
+    "contextMenus",
+    "clipboardWrite",
     "activeTab"
   ]
 }
